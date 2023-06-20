@@ -10,10 +10,10 @@ execute:
 ```{r}
 #| label: setup
 
-library(patchwork)
+suppressPackageStartupMessages(library(orsifronts))
 suppressPackageStartupMessages(library(sf))
+suppressPackageStartupMessages(library(SOmap))
 suppressPackageStartupMessages(library(tidyverse))
-suppressPackageStartupMessages(library(tmap))
 ```
 
 ```{r}
@@ -23,15 +23,10 @@ suppressPackageStartupMessages(library(tmap))
 # Spatial
 ccamlr_areas <- st_read(here::here("data", "statistical_areas"))
 ccamlr_mpas <- st_read(here::here("data", "mpas"))
+saccf <- st_as_sf(orsifronts)["saccf", ]
 ccamlr_border <- ccamlr_areas %>% 
-  st_union() %>% 
+  st_union() %>%  
   nngeo::st_remove_holes()
-antarctica_border <- ccamlr_border %>% 
-  st_difference(st_union(ccamlr_areas))
-
-# Whales and krill
-whales_krill <- read_csv(here::here("data", "ccamlr_whales_krill.csv"),
-                         show_col_types = FALSE)
 
 # Areas of interest
 ccamlr_aoi <- ccamlr_areas %>% 
@@ -49,69 +44,34 @@ ccamlr_aoi <- ccamlr_areas %>%
 ```{r}
 #| label: map
 
-# CCAMLR Areas
-ccamlr_map <- tm_shape(ccamlr_areas, projection = 9354) +
-  tm_polygons(lty = "dotted",
-              col = "lightblue1") +
-  # CCAMLR AOIs
-  tm_shape(ccamlr_aoi) +
-  tm_polygons(col = "lightblue3") +
-  tm_text("aoi") +
-  # MPAs
-  tm_shape(ccamlr_mpas) +
-  tm_polygons() +
-  # Overall outline
-  tm_shape(ccamlr_border) +
-    tm_borders(col = "midnightblue",
-               lwd = 2) +
-  # Border of Antarctica
-  tm_shape(antarctica_border) +
-    tm_borders(col = "skyblue3") +
-  tm_scale_bar(breaks = c(0, 500, 1000)) +
-  # Layout
-  tm_layout(asp = 1)
- 
-```
-
-```{r}
-#| label: relative-catch
-
-catch_plot <- function(aoi) {
-  whales_krill %>% 
-    filter(aoi == {{ aoi }}) %>% 
-    mutate(component2 = c("stock", rep("take", 3))) %>% 
-    ggplot(aes(component, krill_Mt, fill = component2)) +
-    geom_col() +
-    scale_fill_manual(values = c("#2A304F", "#AA1531")) +
-    coord_flip() +
-    labs(y = "Krill (Mt)") +
-    theme_classic(base_size = 10) +
-    theme(legend.position = "none",
-          axis.text.y = element_text(size = 10, color = "black"),
-          axis.title.y = element_blank(),
-          panel.background = element_rect(fill = "transparent"),
-          plot.background = element_rect(fill = "transparent",
-                                         color = NA))
-}
-
-plot_48 <- catch_plot("48.1 - 48.4")
-
-plot_58 <- catch_plot("58.4.2")
-  
-```
-
-```{r}
-#| fig-keep: last
-#| fig-height: 6
-#| fig-width: 6
-plot_design <- "
-A##
-BB#
-BBC
-BB#
-" 
-tmap_options(show.messages = FALSE)
-plot_48 + tmap_grob(ccamlr_map) + plot_58 +
-  plot_layout(design = plot_design)
+# Base map
+SOmap(bathy_legend = FALSE,
+      border = FALSE,
+      trim = -40,
+      graticules = TRUE,
+      land_col = "grey70",
+      ice = FALSE)
+# Add CCAMLR regions
+suppressWarnings(SOplot(ccamlr_areas,
+                        legend = FALSE,
+                        col = "transparent",
+                        border = alpha("grey20", 0.75),
+                        lty = 3))
+# Add AOIs
+SOplot(ccamlr_aoi, 
+       legend = FALSE, 
+       col = alpha("mediumorchid", 0.65),
+       border = FALSE)
+# Add Southern Antarctic circumpolar current front
+suppressWarnings(SOplot(saccf, 
+                        legend = FALSE, 
+                        col = alpha("#6ED355", 0.9),
+                        lwd = 2))
+# Add CCAMLR border
+suppressWarnings(SOplot(ccamlr_border,
+                        legend = FALSE,
+                        col = "transparent",
+                        border = "grey20",
+                        lwd = 3))
 
 ```
