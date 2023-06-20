@@ -2,21 +2,23 @@
 title: "Krill, Whales, and People Map"
 format: html
 editor: visual
+execute: 
+  echo: false
+  message: false
 ---
 
 ```{r}
 #| label: setup
-#| message: false
-#| echo: true
 
-library(cowplot)
-library(sf)
-library(tidyverse)
-library(tmap)
+library(patchwork)
+suppressPackageStartupMessages(library(sf))
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(tmap))
 ```
 
 ```{r}
 #| label: data
+#| results: hide
 
 # Spatial
 ccamlr_areas <- st_read(here::here("data", "statistical_areas"))
@@ -28,7 +30,8 @@ antarctica_border <- ccamlr_border %>%
   st_difference(st_union(ccamlr_areas))
 
 # Whales and krill
-whales_krill <- read_csv(here::here("data", "ccamlr_whales_krill.csv"))
+whales_krill <- read_csv(here::here("data", "ccamlr_whales_krill.csv"),
+                         show_col_types = FALSE)
 
 # Areas of interest
 ccamlr_aoi <- ccamlr_areas %>% 
@@ -42,8 +45,6 @@ ccamlr_aoi <- ccamlr_areas %>%
   summarize(geometry = st_union(geometry), .groups = "drop")
   
 ```
-
-## Map
 
 ```{r}
 #| label: map
@@ -66,90 +67,51 @@ ccamlr_map <- tm_shape(ccamlr_areas, projection = 9354) +
   # Border of Antarctica
   tm_shape(antarctica_border) +
     tm_borders(col = "skyblue3") +
-  tm_scale_bar(breaks = c(0, 500, 1000))
+  tm_scale_bar(breaks = c(0, 500, 1000)) +
+  # Layout
+  tm_layout(asp = 1)
  
 ```
-
-## Krill exploitation
 
 ```{r}
 #| label: relative-catch
 
-# Total krill in 58.4.2: extrapolated to 8.4Mt from Cox et al. 2021
-# Total krill in 48.1-48.4: 62.6Mt from Krafft et al. 2021
+catch_plot <- function(aoi) {
+  whales_krill %>% 
+    filter(aoi == {{ aoi }}) %>% 
+    mutate(component2 = c("stock", rep("take", 3))) %>% 
+    ggplot(aes(component, krill_Mt, fill = component2)) +
+    geom_col() +
+    scale_fill_manual(values = c("#2A304F", "#AA1531")) +
+    coord_flip() +
+    labs(y = "Krill (Mt)") +
+    theme_classic(base_size = 10) +
+    theme(legend.position = "none",
+          axis.text.y = element_text(size = 10, color = "black"),
+          axis.title.y = element_blank(),
+          panel.background = element_rect(fill = "transparent"),
+          plot.background = element_rect(fill = "transparent",
+                                         color = NA))
+}
 
-krill <- tibble(
-  aoi = c("48.1 - 48.4", "58.4.2"),
-  krill_biomass_Mt = c(62.6, 8.4),
-  # From CCAMLR fisheries 2018/19 limits
-  krill_tac_Mt = c(c(155000 + 279000 + 279000 + 93000) / 1e6,
-                   2645000 / 1e6)
-)
+plot_48 <- catch_plot("48.1 - 48.4")
 
-modern_whales <- whales_krill %>% 
-  mutate(aoi = ifelse(region_code == 48, "48.1 - 48.4", "58.4.2")) %>% 
-  filter(era == "modern") %>% 
-  group_by(aoi) %>% 
-  summarize(krill_consumption_Mt_yr = sum(pop_krill_tonnes_yr) / 1e6)
-historic_whales <- whales_krill %>% 
-  mutate(aoi = ifelse(region_code == 48, "48.1 - 48.4", "58.4.2")) %>% 
-  filter(era == "historic") %>% 
-  group_by(aoi) %>% 
-  summarize(krill_consumption_Mt_yr = sum(pop_krill_tonnes_yr) / 1e6)
-
-modern_plot <- left_join(krill, modern_whales, by = "aoi") %>% 
-  pivot_longer(-aoi, names_to = "component", values_to = "krill_Mt") %>% 
-  replace_na(list(krill_Mt = 0)) %>% 
-  mutate(component2 = ifelse(component == "krill_biomass_Mt",
-                             "Krill stock",
-                             "Krill consumed"),
-         aoi_comp = str_glue("{aoi} {component2}"),
-         component_label = case_when(
-           component == "krill_biomass_Mt" ~ "Krill stock",
-           component == "krill_tac_Mt" ~ "Krill TAC",
-           component == "krill_consumption_Mt_yr" ~ "Whale consumption"
-         )) %>% 
-  ggplot(aes(aoi_comp, krill_Mt, fill = component_label)) +
-  geom_col() +
-  scale_fill_brewer(palette = "Dark2") +
-  labs(y = "Krill biomass (Mt)") +
-  coord_flip() +
-  theme_classic() +
-  theme(axis.title.y = element_blank(),
-        legend.title = element_blank())
-historic_plot <- left_join(krill, historic_whales, by = "aoi") %>% 
-  pivot_longer(-aoi, names_to = "component", values_to = "krill_Mt") %>% 
-  replace_na(list(krill_Mt = 0)) %>% 
-  mutate(component2 = ifelse(component == "krill_biomass_Mt",
-                             "Krill stock",
-                             "Krill consumed"),
-         aoi_comp = str_glue("{aoi} {component2}"),
-         component_label = case_when(
-           component == "krill_biomass_Mt" ~ "Krill stock",
-           component == "krill_tac_Mt" ~ "Krill TAC",
-           component == "krill_consumption_Mt_yr" ~ "Whale consumption"
-         )) %>% 
-  ggplot(aes(aoi_comp, krill_Mt, fill = component_label)) +
-  geom_col() +
-  scale_fill_brewer(palette = "Dark2") +
-  labs(y = "Krill biomass (Mt)") +
-  coord_flip() +
-  theme_classic() +
-  theme(axis.title.y = element_blank(),
-        legend.title = element_blank())
-
-consumption_plot <- (modern_plot / historic_plot) +
-  plot_layout(guides = "collect") +
-  plot_annotation(tag_levels = list(c("Modern", "Historic")))
-
-consumption_48 <- krill %>% 
-  
+plot_58 <- catch_plot("58.4.2")
   
 ```
 
-## Together
-
 ```{r}
-ggdraw() +
-  draw_plot(tmap_grob(ccamlr_map))
+#| fig-keep: last
+#| fig-height: 6
+#| fig-width: 6
+plot_design <- "
+A##
+BB#
+BBC
+BB#
+" 
+tmap_options(show.messages = FALSE)
+plot_48 + tmap_grob(ccamlr_map) + plot_58 +
+  plot_layout(design = plot_design)
+
 ```
